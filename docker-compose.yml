@@ -1,0 +1,105 @@
+version: '3.8'  # Определяет версию формата docker-compose. Версия 3.8 актуальна для новых проектов.
+
+services:  # Определяет раздел, в котором описываются все сервисы (контейнеры), входящие в состав проекта.
+  nginx:
+    image: nginx:latest
+    container_name: study_forum_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./api-gateway:/var/www
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - api-gateway
+        
+  api-gateway:  # Сервис "api-gateway" – точка входа в систему, объединяющая вызовы к другим сервисам.
+    build: ./api-gateway  # Собирает Docker-образ из Dockerfile, расположенного в каталоге ./api-gateway.
+    container_name: study_forum_api_gateway  # Задает понятное имя для контейнера, чтобы его было легче идентифицировать.
+    ports:
+      - "8000:8000"  # Пробрасывает порт 8000 контейнера на порт 8000 хоста, чтобы можно было обращаться к API.
+    volumes:
+      - ./api-gateway:/var/www  # Монтирует локальную директорию ./api-gateway в контейнер по пути /var/www (синхронизация исходного кода).
+    depends_on:  # Указывает зависимости: сервис не будет запущен, пока не запустятся перечисленные ниже сервисы.
+      - user-service
+      - forum-service
+      - notification-service
+      - db
+      - redis
+      - kafka
+    environment:  # Определяет переменные окружения для конфигурации приложения внутри контейнера.
+      APP_ENV: pgsql             # Режим работы приложения (локальное окружение).
+      DB_HOST: db                # Имя хоста базы данных – ссылается на сервис "db".
+      DB_PORT: 5432              # Порт для подключения к базе данных PostgreSQL.
+      DB_DATABASE: study_forum   # Имя базы данных.
+      DB_USERNAME: masya          # Имя пользователя для доступа к базе данных.
+      DB_PASSWORD: 7895123      # Пароль для доступа к базе данных.
+
+  user-service:  # Сервис "user-service" – отвечает за управление пользователями и авторизацию.
+    build: ./user-service  # Собирает образ из каталога ./user-service.
+    container_name: study_forum_user_service  # Имя контейнера для удобства управления.
+    volumes:
+      - ./user-service:/var/www  # Монтирует локальную папку ./user-service в контейнер по пути /var/www.
+    depends_on:  # Указывает зависимости этого сервиса.
+      - db        # Зависит от базы данных.
+      - redis     # Зависит от Redis для кэширования.
+      - kafka     # Зависит от Kafka для обмена сообщениями.
+
+  forum-service:  # Сервис "forum-service" – отвечает за функционал форума (темы, посты, комментарии).
+    build: ./forum-service  # Собирает Docker-образ из каталога ./forum-service.
+    container_name: study_forum_forum_service  # Задает имя контейнера.
+    volumes:
+      - ./forum-service:/var/www  # Монтирует локальную папку ./forum-service в контейнер.
+    depends_on:  # Сервис зависит от:
+      - db      # Базы данных для хранения информации о форумах.
+      - kafka   # Kafka для обмена сообщениями между сервисами.
+
+  notification-service:  # Сервис "notification-service" – отвечает за отправку уведомлений (email, WebSocket, и пр.).
+    build: ./notification-service  # Собирает образ из каталога ./notification-service.
+    container_name: study_forum_notification_service  # Имя контейнера.
+    volumes:
+      - ./notification-service:/var/www  # Монтирует локальную папку с кодом сервиса.
+    depends_on:  # Зависит от:
+      - kafka   # Kafka для получения событий, по которым отправляются уведомления.
+
+  db:  # Сервис "db" – база данных PostgreSQL.
+    image: postgres:13  # Использует официальный образ PostgreSQL версии 13.
+    container_name: study_forum_db  # Задает имя контейнера базы данных.
+    restart: always  # Автоматически перезапускает контейнер в случае падения.
+    environment:  # Переменные окружения для настройки базы данных.
+      POSTGRES_DB: study_forum      # Имя базы данных, которая будет создана.
+      POSTGRES_USER: masya           # Имя пользователя для доступа к базе.
+      POSTGRES_PASSWORD: 7895123   # Пароль для пользователя.
+    ports:
+      - "5432:5432"  # Пробрасывает порт 5432 контейнера на порт 5432 хоста.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Монтирует volume "postgres_data" для сохранения данных базы между перезапусками.
+
+  redis:  # Сервис "redis" – кэш-сервер.
+    image: redis:latest  # Использует официальный образ Redis (последняя версия).
+    container_name: study_forum_redis  # Имя контейнера Redis.
+    ports:
+      - "6380:6380"  # Пробрасывает порт 6380 контейнера на порт 6380 хоста.
+
+  zookeeper:  # Сервис "zookeeper" – необходим для работы Kafka.
+    image: confluentinc/cp-zookeeper:latest  # Использует образ Zookeeper от Confluent.
+    container_name: study_forum_zookeeper  # Имя контейнера для Zookeeper.
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181  # Порт для подключения клиентов к Zookeeper.
+      ZOOKEEPER_TICK_TIME: 2000    # Настройка временного интервала (tick time) для Zookeeper.
+    ports:
+      - "2181:2181"  # Пробрасывает порт 2181 контейнера на порт 2181 хоста.
+
+  kafka:  # Сервис "kafka" – брокер сообщений для обмена данными между сервисами.
+    image: confluentinc/cp-kafka:latest  # Использует образ Kafka от Confluent.
+    container_name: study_forum_kafka  # Имя контейнера Kafka.
+    depends_on:
+      - zookeeper  # Kafka зависит от Zookeeper, поэтому он будет запущен после него.
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181  # Адрес Zookeeper, с которым Kafka будет взаимодействовать.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092  # Адрес и порт, по которым клиенты будут подключаться к Kafka.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1  # Фактор репликации для служебной темы offsets (1, т.к. используется один брокер).
+    ports:
+      - "9093:9093"  # Пробрасывает порт 9092 контейнера на порт 9092 хоста.
+
+volumes:  # Раздел, где определяются volume'ы для постоянного хранения данных.
+  postgres_data:  # Объявляет volume "postgres_data", который используется для хранения данных PostgreSQL.

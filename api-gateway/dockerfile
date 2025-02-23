@@ -1,0 +1,38 @@
+# Используем PHP 8.2 с FPM
+FROM php:8.2-fpm
+
+# Устанавливаем необходимые утилиты и зависимости
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    git \
+    unzip \
+    curl \
+    zip \
+    nano \
+    vim \
+    net-tools \
+    iproute2 \
+    procps \
+    libzip-dev \
+    pkg-config \
+    libonig-dev \
+    libpng-dev \
+    && docker-php-ext-install pdo pdo_pgsql zip mbstring \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем Composer
+COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+
+# Создаём рабочую директорию
+WORKDIR /var/www
+
+# Копируем файлы проекта внутрь контейнера
+COPY . /var/www
+
+# Раздаём права на storage/ и bootstrap/cache/
+RUN chmod -R 777 /var/www/storage /var/www/bootstrap/cache
+
+# Запускаем PHP-FPM
+CMD ["php-fpm"]
